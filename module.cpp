@@ -196,7 +196,6 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
     for (int b = 0; b < B; b++) {
          for (int h = 0; h < H; h++) {
              for (int ti = 0; ti < N; ti += TILE_SIZE) {
-                float rowSum = 0.0;
                 for (int tj = 0; tj < N; tj += TILE_SIZE) {
                     for (int tk = 0; tk < d; tk += TILE_SIZE) {
                         for (int i = ti; i < std::min(ti + TILE_SIZE, N); i++) {
@@ -206,17 +205,26 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
                                     val += fourDimRead(Q, b, h, i, k, H, N, d) * fourDimRead(K, b, h, j, k, H, N, d);
                                 }
                                 val = std::exp(val);
-                                rowSum += val;
                                 twoDimWrite(QK_t, i, j, N, val);
                             }
                         }
+                    }
+                }
+                for (int i = 0; i < N; i++) {
+                    float rowSum = 0.0;
+                    for (int j = 0; j < N; j++) {
+                        rowSum += twoDimRead(QK_t, i, j, N);
+                    }
+                    for (int j = 0; j < N; j++) {
+                        float val = twoDimRead(QK_t, i, j, N) / rowSum;
+                        twoDimWrite(QK_t, i, j, N, val);
                     }
                 }
                 for (int tj = 0; tj < N; tj += TILE_SIZE) {
                    for (int tk = 0; tk < d; tk += TILE_SIZE) {
                         for (int i = ti; i < std::min(ti + TILE_SIZE, N); i++) {
                             for (int j = tj; j < std::min(tj + TILE_SIZE, N); j++) {
-                                float val = twoDimRead(QK_t, i, j, N) / rowSum;
+                                float val = twoDimRead(QK_t, i, j, N);
                                 for (int k = tk; k < std::min(tk + TILE_SIZE, d); k++) {
                                     float oVal = fourDimRead(O, b, h, i, k, H, N, d);
                                     oVal += val * fourDimRead(V, b, h, j, k, H, N, d);
@@ -225,7 +233,6 @@ torch::Tensor myUnfusedAttentionBlocked(torch::Tensor QTensor, torch::Tensor KTe
                             }
                         }
                    }
-
                 }
              }
          }
